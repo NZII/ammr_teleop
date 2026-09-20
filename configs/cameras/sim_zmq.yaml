@@ -1,0 +1,19 @@
+schema_version: 1
+profile: sim
+transport:
+  type: zmq
+  codec: jpeg
+  jpeg_quality: 95
+  snd_hwm: 2
+  rcv_hwm: 2
+cameras:
+  head:
+    bind: tcp://0.0.0.0:56555
+    connect: tcp://127.0.0.1:56555
+  left_wrist:
+    bind: tcp://0.0.0.0:56556
+    connect: tcp://127.0.0.1:56556
+  right_wrist:
+    bind: tcp://0.0.0.0:56557
+    connect: tcp://127.0.0.1:56557
+

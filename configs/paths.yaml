@@ -1,0 +1,11 @@
+{
+  "kinematics_urdf": "models/kinematics/c2436.urdf",
+  "data_root": "datasets",
+  "log_root": "~/.cache/ammr_teleop/logs",
+  "ros_ws": "ros2_ws",
+  "teleop_python": "~/miniconda3/envs/tv/bin/python",
+  "agx_root": "yanjun/ammr_teleop",
+  "agx_data_dir": "yanjun/ammr_teleop/datasets/ammr_real_xr",
+  "agx_overlay_setup": "",
+  "agx_camera_setup": ""
+}

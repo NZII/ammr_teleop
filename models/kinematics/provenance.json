@@ -1,0 +1,7 @@
+{
+  "source": "simulator/assets/robot/Agilex_model/c2436/urdf/robot_v2_chassis.urdf",
+  "source_sha256": "9a8c6e1fb14f8db6eaf3872488067ea87db59594b53bced98a11ba421ff672c1",
+  "output_sha256": "50eabff9200442b5145e6fb8c54a4598536890c07add00ad19e5440f2e56a809",
+  "transformation": "Remove visual and collision children of links; preserve all joints, frames, limits and inertials.",
+  "validation": {"random_joint_samples": 40, "maximum_end_effector_matrix_error": 0.0, "reduced_nq": 12}
+}

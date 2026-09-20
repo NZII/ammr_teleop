@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ammr-teleop"
+version = "0.1.0"
+description = "Unified AMMR XR teleoperation for simulation and real robots"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"ammr_teleop.common" = ["profiles/*.json"]
+"ammr_teleop.real" = ["*.sh"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "third_party/televuer/src"]
+addopts = ["-p", "no:launch_testing", "-p", "no:launch_ros"]

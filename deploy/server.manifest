@@ -1,0 +1,4 @@
+{
+  "include": ["src/ammr_teleop", "scripts", "configs", "models/kinematics", "third_party/televuer", "pyproject.toml", "deploy", "ros2_ws/src/lifting_msg_pkg", "LICENSE"],
+  "exclude": ["src/ammr_teleop/sim/*", "scripts/backends/*sim*", "scripts/backends/*keyboard*", "third_party/televuer/example/*"]
+}

@@ -1,0 +1,44 @@
+schema_version: 1
+profile: real
+transport:
+  type: zmq
+  codec: jpeg
+  jpeg_quality: 92
+  snd_hwm: 2
+  rcv_hwm: 2
+recording:
+  target_fps: 30
+  history_seconds: 1.0
+  max_camera_age_ms: 200
+  max_cross_camera_skew_ms: 80
+  allow_camera_reuse: true
+cameras:
+  head:
+    backend: realsense
+    serial: "130222250419"
+    bind: tcp://0.0.0.0:55555
+    local_connect: tcp://127.0.0.1:55555
+    server_connect: tcp://192.168.3.99:55555
+    width: 640
+    height: 480
+    fps: 30
+  left_wrist:
+    backend: orbbec
+    serial: "CC1N16200TW"
+    usb_port: "1-4.1.1.2.4"
+    bind: tcp://0.0.0.0:55556
+    local_connect: tcp://127.0.0.1:55556
+    server_connect: tcp://192.168.3.99:55556
+    width: 640
+    height: 480
+    fps: 30
+  right_wrist:
+    backend: orbbec
+    serial: "CC1WC5200R4"
+    usb_port: "1-4.1.3.4"
+    bind: tcp://0.0.0.0:55557
+    local_connect: tcp://127.0.0.1:55557
+    server_connect: tcp://192.168.3.99:55557
+    width: 640
+    height: 480
+    fps: 30

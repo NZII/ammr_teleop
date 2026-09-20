@@ -1,0 +1,33 @@
+{
+  "name": "piper_absolute_smooth_v1",
+  "version": 1,
+  "description": "Validated Piper absolute XR mapping with 50 Hz IK and 100 Hz jerk-limited command output.",
+  "parameters": {
+    "wrist_mapping": "absolute",
+    "xr_frequency": 50.0,
+    "command_frequency": 100.0,
+    "display_frequency": 30.0,
+    "recording_frequency": 30.0,
+    "translation_scale": 1.1,
+    "rotation_scale": 0.55,
+    "max_wrist_translation": 0.5,
+    "ik_motion_regularization": 0.4,
+    "ik_posture_regularization": 0.01,
+    "pose_filter": "one_euro",
+    "one_euro_min_cutoff": 0.8,
+    "one_euro_beta": 5.0,
+    "one_euro_d_cutoff": 0.9,
+    "arm_velocity": 0.5,
+    "arm_acceleration": 1.6,
+    "arm_jerk": 5.0,
+    "gripper_velocity": 0.1,
+    "gripper_acceleration": 0.4,
+    "gripper_jerk": 2.0
+  },
+  "common_overrides": [
+    "translation_scale",
+    "rotation_scale",
+    "max_wrist_translation",
+    "arm_velocity"
+  ]
+}

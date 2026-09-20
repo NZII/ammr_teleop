@@ -1,0 +1,4 @@
+{
+  "include": ["src/ammr_teleop", "scripts", "configs", "pyproject.toml", "deploy", "ros2_ws/src/lifting_msg_pkg", "LICENSE"],
+  "exclude": ["src/ammr_teleop/sim/*", "src/ammr_teleop/xr/*", "src/ammr_teleop/common/kinematics.py", "src/ammr_teleop/common/robot_ik.py", "src/ammr_teleop/common/pose_mapper.py", "src/ammr_teleop/real/xr_teleop_real.py", "src/ammr_teleop/real/control_center*.py", "scripts/backends/*sim*", "scripts/backends/*keyboard*", "scripts/backends/*xr_teleop*", "scripts/backends/*control_center*"]
+}
