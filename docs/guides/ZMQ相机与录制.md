@@ -75,7 +75,7 @@ bash src/ammr_teleop/real/agx_process_manager.sh status
 
 ## 录制同步规则
 
-机械臂 state/action 仍使用 ROS2。图像使用 ZMQ。recorder 按 30 Hz 目标时间轴匹配最近状态、过去 action 和最近相机帧。相机在相邻目标点没有新帧时允许复用，不再丢弃整条动作；数据中保存每路 sequence 和 `reused` 诊断以及实际目标时间戳。
+机械臂 state/action 仍使用 ROS2，图像使用 ZMQ。Recorder 按配置频率采样，每次分别取各路缓存的最新值，不再按共同目标时间匹配或拒绝数据。某路暂时没有新消息时继续使用其最后值，并保存每路年龄、相机 sequence 和 `reused` 诊断；LeRobot 时间轴仍按 `frame_index / fps` 生成。
 
 真机三台独立物理相机没有硬件触发，因此是时间戳软件对齐。仿真三路相机来自同一个渲染帧，并使用公共 `bundle_sequence`，仍为强同步。仿真 recorder 继续直接读取完整共享内存帧包，ZMQ 用于显示和外部消费者。
 
@@ -87,9 +87,9 @@ cd /home/ai/project/yj/ammr_teleop
   --dataset-path /home/ai/project/zw/openpi/dataset/ammr_pick_place
 ```
 
-Dashboard 的 `Actual capture Hz` 优先来自 `meta/episodes.jsonl` 的质量指标，
-其次使用 `ammr.sync.target_timestamp`，不会把规范化的 parquet 时间轴频率误当成
-真实采集率。完整用法见[数据集可视化与批量校验](数据集可视化与批量校验.md)。
+Dashboard 的 `Actual capture Hz` 优先来自 `meta/episodes.jsonl` 的质量指标；旧数据
+其次使用 `ammr.sync.target_timestamp`。新数据还展示各路源数据年龄与相机帧复用率。
+完整用法见[数据集可视化与批量校验](数据集可视化与批量校验.md)。
 
 ## 单臂遥操作与双臂录制
 

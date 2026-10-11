@@ -287,7 +287,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--stick-deadband", type=float, default=0.08)
     parser.add_argument("--lift-speed", type=int, default=40, help="Maximum mode=-4 lift speed in mm/s")
     parser.add_argument("--lift-command-period", type=float, default=0.20)
-    parser.add_argument("--camera-max-age", type=float, default=0.20)
     parser.add_argument("--display-mode", choices=("pass-through", "immersive", "ego"), default="pass-through")
     parser.add_argument("--image-width", type=int, default=640)
     parser.add_argument("--image-height", type=int, default=480)
@@ -442,7 +441,7 @@ def validate_args(args: argparse.Namespace) -> None:
         "ik_feedback_seed_max_error",
         "one_euro_min_cutoff", "one_euro_d_cutoff",
         "gripper_velocity", "gripper_effort", "max_linear_x", "max_linear_y",
-        "max_angular_z", "lift_speed", "lift_command_period", "camera_max_age",
+        "max_angular_z", "lift_speed", "lift_command_period",
         "recorder_service_timeout",
         "image_width", "image_height", "arm_reset_duration",
     )

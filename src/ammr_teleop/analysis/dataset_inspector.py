@@ -28,12 +28,16 @@ class EpisodeMetrics:
     timeline_hz: float
     actual_hz: float
     actual_hz_source: str
-    max_gap_ms: float
+    legacy_capture_gap_ms: float | None
+    camera_reuse_ratio: float
+    camera_reuse_summary: str
+    camera_sequence_gaps: int
+    max_source_age_ms: float
+    source_age_summary: str
+    producer_drops: int
+    legacy_sync_summary: str
     quality_valid: bool | None
     quality_issues: str
-    rejected_ratio: float
-    duplicate_ratio: float
-    target_skip_ratio: float
     mean_rmse: float
     max_error: float
     max_action_step: float
@@ -52,16 +56,23 @@ class EpisodeMetrics:
             "timeline_hz": round(self.timeline_hz, 2),
             "actual_hz": round(self.actual_hz, 2),
             "actual_hz_source": self.actual_hz_source,
-            "max_gap_ms": round(self.max_gap_ms, 2),
+            "legacy_capture_gap_ms": (
+                round(self.legacy_capture_gap_ms, 2)
+                if self.legacy_capture_gap_ms is not None else None
+            ),
+            "camera_reuse_ratio": round(self.camera_reuse_ratio, 4),
+            "camera_reuse_summary": self.camera_reuse_summary,
+            "camera_sequence_gaps": self.camera_sequence_gaps,
+            "max_source_age_ms": round(self.max_source_age_ms, 2),
+            "source_age_summary": self.source_age_summary,
+            "producer_drops": self.producer_drops,
+            "legacy_sync_summary": self.legacy_sync_summary,
             "quality_valid": (
                 "unknown"
                 if self.quality_valid is None
                 else "yes" if self.quality_valid else "no"
             ),
             "quality_issues": self.quality_issues,
-            "rejected_ratio": round(self.rejected_ratio, 4),
-            "duplicate_ratio": round(self.duplicate_ratio, 4),
-            "target_skip_ratio": round(self.target_skip_ratio, 4),
             "mean_rmse": round(self.mean_rmse, 6),
             "max_error": round(self.max_error, 6),
             "max_action_step": round(self.max_action_step, 6),
@@ -148,6 +159,60 @@ def read_target_timestamps(path: Path) -> np.ndarray | None:
     return values
 
 
+def read_capture_diagnostics(
+    path: Path,
+) -> tuple[float, str, int, float, str]:
+    """Summarize per-camera reuse, sequence gaps, and per-source age."""
+    try:
+        import pyarrow.parquet as pq
+
+        schema = pq.read_schema(path)
+        reused = [
+            column for column in schema.names
+            if column.startswith("ammr.capture.camera_") and column.endswith("_reused")
+        ]
+        sequences = [
+            column for column in schema.names
+            if column.startswith("ammr.capture.camera_") and column.endswith("_sequence")
+        ]
+        ages = [
+            column for column in schema.names
+            if column.startswith("ammr.capture.") and column.endswith("_age_ms")
+        ]
+        selected = reused + sequences + ages
+        if not selected:
+            return 0.0, "", 0, 0.0, ""
+        table = pq.read_table(path, columns=selected).to_pandas()
+    except Exception:
+        return 0.0, "", 0, 0.0, ""
+    reuse_ratio = (
+        float(np.concatenate([table[column].to_numpy(dtype=np.float64) for column in reused]).mean())
+        if reused else 0.0
+    )
+    reuse_by_camera = {
+        column.removeprefix("ammr.capture.camera_").removesuffix("_reused"):
+        float(table[column].to_numpy(dtype=np.float64).mean())
+        for column in reused
+    }
+    ages_by_source = {
+        column.removeprefix("ammr.capture.").removesuffix("_age_ms"):
+        float(table[column].max())
+        for column in ages
+    }
+    sequence_gaps = 0
+    for column in sequences:
+        values = table[column].to_numpy(dtype=np.float64)
+        differences = np.diff(values)
+        sequence_gaps += int(np.maximum(differences - 1.0, 0.0).sum())
+    return (
+        reuse_ratio,
+        ", ".join(f"{name}={value:.3f}" for name, value in sorted(reuse_by_camera.items())),
+        sequence_gaps,
+        max(ages_by_source.values(), default=0.0),
+        ", ".join(f"{name}={value:.1f}ms" for name, value in sorted(ages_by_source.items())),
+    )
+
+
 def calculate_metrics(
     episode: RealEpisode,
     quality: dict[str, Any] | None = None,
@@ -161,20 +226,26 @@ def calculate_metrics(
     joint_max_error = np.max(np.abs(errors), axis=0)
     if len(actions) > 1:
         joint_max_step = np.max(np.abs(np.diff(actions, axis=0)), axis=0)
-        gaps = np.diff(timestamps)
         timeline_hz = float((len(timestamps) - 1) / (timestamps[-1] - timestamps[0]))
-        max_gap_ms = float(np.max(gaps) * 1000.0)
     else:
         joint_max_step = np.zeros(len(REAL_JOINTS), dtype=np.float64)
         timeline_hz = 0.0
-        max_gap_ms = 0.0
     quality = quality if isinstance(quality, dict) else None
     quality_metrics = quality.get("metrics", {}) if quality else {}
+    (
+        camera_reuse_ratio,
+        camera_reuse_summary,
+        camera_sequence_gaps,
+        max_source_age_ms,
+        source_age_summary,
+    ) = read_capture_diagnostics(Path(episode.path))
     target_timestamps_valid = (
         target_timestamps is not None and len(target_timestamps) == len(timestamps)
     )
-    if target_timestamps_valid:
-        max_gap_ms = float(np.max(np.diff(target_timestamps)) * 1000.0)
+    legacy_capture_gap_ms = (
+        float(np.max(np.diff(target_timestamps)) * 1000.0)
+        if target_timestamps_valid else None
+    )
     recorded_duration = _finite_metric(quality_metrics, "duration_s")
     if recorded_duration > 0.0:
         capture_duration_s = recorded_duration
@@ -214,12 +285,25 @@ def calculate_metrics(
         timeline_hz=timeline_hz,
         actual_hz=actual_hz,
         actual_hz_source=actual_hz_source,
-        max_gap_ms=max_gap_ms,
+        legacy_capture_gap_ms=legacy_capture_gap_ms,
+        camera_reuse_ratio=camera_reuse_ratio,
+        camera_reuse_summary=camera_reuse_summary,
+        camera_sequence_gaps=camera_sequence_gaps,
+        max_source_age_ms=max_source_age_ms,
+        source_age_summary=source_age_summary,
+        producer_drops=int(_finite_metric(quality_metrics, "producer_drops")),
+        legacy_sync_summary=(
+            "rejected={:.3f}, reused/duplicate={:.3f}, target skips={:.3f}".format(
+                _finite_metric(quality_metrics, "rejected_ratio"),
+                _finite_metric(quality_metrics, "duplicate_ratio"),
+                _finite_metric(quality_metrics, "target_skip_ratio"),
+            )
+            if any(name in quality_metrics for name in (
+                "rejected_ratio", "duplicate_ratio", "target_skip_ratio"
+            )) else ""
+        ),
         quality_valid=quality_valid,
         quality_issues=quality_issues,
-        rejected_ratio=_finite_metric(quality_metrics, "rejected_ratio"),
-        duplicate_ratio=_finite_metric(quality_metrics, "duplicate_ratio"),
-        target_skip_ratio=_finite_metric(quality_metrics, "target_skip_ratio"),
         mean_rmse=float(np.mean(joint_rmse)),
         max_error=float(np.max(joint_max_error)),
         max_action_step=float(np.max(joint_max_step)),
@@ -243,12 +327,16 @@ def invalid_metrics(path: Path, error: Exception) -> EpisodeMetrics:
         timeline_hz=0.0,
         actual_hz=0.0,
         actual_hz_source="unavailable",
-        max_gap_ms=0.0,
+        legacy_capture_gap_ms=None,
+        camera_reuse_ratio=0.0,
+        camera_reuse_summary="",
+        camera_sequence_gaps=0,
+        max_source_age_ms=0.0,
+        source_age_summary="",
+        producer_drops=0,
+        legacy_sync_summary="",
         quality_valid=None,
         quality_issues="",
-        rejected_ratio=0.0,
-        duplicate_ratio=0.0,
-        target_skip_ratio=0.0,
         mean_rmse=0.0,
         max_error=0.0,
         max_action_step=0.0,
@@ -359,10 +447,14 @@ def create_app(metrics: Sequence[EpisodeMetrics]):
             ("Timeline Hz", "timeline_hz", "numeric"),
             ("Actual capture Hz", "actual_hz", "numeric"),
             ("Actual Hz source", "actual_hz_source", "text"),
-            ("Max gap (ms)", "max_gap_ms", "numeric"),
-            ("Rejected ratio", "rejected_ratio", "numeric"),
-            ("Duplicate ratio", "duplicate_ratio", "numeric"),
-            ("Target skip ratio", "target_skip_ratio", "numeric"),
+            ("Legacy capture gap (ms)", "legacy_capture_gap_ms", "numeric"),
+            ("Camera frame reuse ratio", "camera_reuse_ratio", "numeric"),
+            ("Reuse by camera", "camera_reuse_summary", "text"),
+            ("Camera sequence gaps", "camera_sequence_gaps", "numeric"),
+            ("Max source age (ms)", "max_source_age_ms", "numeric"),
+            ("Source ages (ms)", "source_age_summary", "text"),
+            ("Writer drops", "producer_drops", "numeric"),
+            ("Legacy sync metrics", "legacy_sync_summary", "text"),
             ("Mean RMSE", "mean_rmse", "numeric"),
             ("Max error", "max_error", "numeric"),
             ("Max action step", "max_action_step", "numeric"),
@@ -415,6 +507,9 @@ def create_app(metrics: Sequence[EpisodeMetrics]):
                 style_cell_conditional=[
                     {"if": {"column_id": "episode"}, "textAlign": "left"},
                     {"if": {"column_id": "actual_hz_source"}, "textAlign": "left"},
+                    {"if": {"column_id": "legacy_sync_summary"}, "textAlign": "left"},
+                    {"if": {"column_id": "camera_reuse_summary"}, "textAlign": "left"},
+                    {"if": {"column_id": "source_age_summary"}, "textAlign": "left"},
                     {"if": {"column_id": "quality_issues"}, "textAlign": "left"},
                     {"if": {"column_id": "error"}, "textAlign": "left"},
                 ],
@@ -526,8 +621,15 @@ def create_app(metrics: Sequence[EpisodeMetrics]):
             f"{item.duration_s:.3f} / {item.capture_duration_s:.3f}s\n"
             f"nominal/timeline/actual: {item.nominal_hz:.3f} / "
             f"{item.timeline_hz:.3f} / {item.actual_hz:.3f}Hz\n"
+            f"camera reuse: {item.camera_reuse_ratio:.3f}    "
+            f"reuse by camera: {item.camera_reuse_summary or 'not present'}\n"
+            f"camera sequence gaps: {item.camera_sequence_gaps}    "
+            f"max source age: {item.max_source_age_ms:.1f}ms    "
+            f"writer drops: {item.producer_drops}\n"
+            f"source ages: {item.source_age_summary or 'not present'}\n"
             f"actual Hz source: {item.actual_hz_source}    "
             f"quality: {item.table_record()['quality_valid']}\n"
+            f"legacy sync metrics: {item.legacy_sync_summary or 'not present'}\n"
             f"quality issues: {item.quality_issues or 'none'}\n"
             f"mean RMSE: {item.mean_rmse:.6f}    max error: {item.max_error:.6f}    "
             f"max action step: {item.max_action_step:.6f}"

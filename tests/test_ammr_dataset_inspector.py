@@ -45,6 +45,9 @@ class AmmrDatasetInspectorTest(unittest.TestCase):
                     "frame_index": index,
                     "timestamp": index / 10.0,
                     "ammr.sync.target_timestamp": index / 5.0,
+                    "ammr.capture.camera_head_age_ms": 5.0 + index,
+                    "ammr.capture.camera_head_reused": float(index),
+                    "ammr.capture.camera_head_sequence": 10.0 + 3.0 * index,
                     "action": action.tolist(),
                     "observation.state": state.tolist(),
                 }
@@ -95,10 +98,15 @@ class AmmrDatasetInspectorTest(unittest.TestCase):
             self.assertAlmostEqual(metrics[0].capture_duration_s, 0.2)
             self.assertEqual(metrics[0].actual_hz_source, "episodes.jsonl quality")
             self.assertFalse(metrics[0].quality_valid)
-            self.assertAlmostEqual(metrics[0].duplicate_ratio, 0.2)
+            self.assertAlmostEqual(metrics[0].camera_reuse_ratio, 0.5)
+            self.assertIn("head=0.500", metrics[0].camera_reuse_summary)
+            self.assertEqual(metrics[0].camera_sequence_gaps, 2)
+            self.assertAlmostEqual(metrics[0].max_source_age_ms, 6.0)
+            self.assertIn("camera_head=6.0ms", metrics[0].source_age_summary)
+            self.assertIn("duplicate=0.200", metrics[0].legacy_sync_summary)
             self.assertAlmostEqual(metrics[1].max_action_step, 0.02)
 
-    def test_uses_target_timestamp_when_quality_metadata_is_missing(self):
+    def test_keeps_legacy_target_timestamp_fallback_without_quality_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             root = self._dataset(directory)
             (root / "meta" / "episodes.jsonl").unlink()

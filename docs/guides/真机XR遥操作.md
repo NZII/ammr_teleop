@@ -623,17 +623,8 @@ export ROS_DOMAIN_ID=101
 
 ./scripts/ammr.sh recorder --domain-id 101 \
   --recording-frequency 30 \
-  --sync-delay 0.04 \
-  --history-duration 1.0 \
-  --camera-max-age 0.20 \
-  --camera-max-skew 0.08 \
-  --state-max-age 0.25 \
-  --action-max-age 0.25 \
   --quality-min-frames 30 \
   --quality-min-fps 20 \
-  --quality-max-rejected-ratio 0.30 \
-  --quality-max-duplicate-ratio 0.30 \
-  --quality-max-target-skip-ratio 0.05 \
   --quality-max-producer-drops 0 \
   --writer-queue-size 16 \
   --data-dir ~/yanjun/ammr_teleop/datasets/ammr_real_xr \
@@ -670,21 +661,15 @@ Left X/`s`通过标准`std_srvs/srv/SetBool`异步调用
 
 采用 `ammr_real_joint14_v1` 契约：左臂 6、左夹爪 1、右臂 6、右夹爪 1。
 每帧保存实际反馈 `observation.state`、实际已发布目标 `action`，以及头部、
-左腕和右腕三路 RGB。Recorder 使用1秒短时环形缓冲，以固定30 Hz产生目标时刻：
-三路相机和feedback选择最近样本，action只选择目标时刻之前最近的命令，避免把
-未来指令与当前观测配对。`--sync-delay 0.04`允许匹配目标时刻前后到达的相机帧，
-只增加录制链路延迟，不影响遥操作控制。任意一路完全缺失或超过
-`--camera-max-age`才拒绝该目标。默认不因三相机 skew 超限而丢弃；如确需严格模式，
-显式使用 `--strict-camera-skew`。
+左腕和右腕三路 RGB。Recorder 按设定频率触发采样，每次独立读取各 state/action
+和相机缓存中的最新值；不做跨模态时间对齐，不因数据年龄、相机偏斜或相机帧复用
+拒绝样本。开始录制前需每一路至少收到一条有效数据；录制中某一路暂停更新时继续
+使用其最后值，并通过数据年龄诊断暴露该情况。
 
-相机在相邻 30 Hz 目标点没有新帧时会复用最近有效帧，不再丢弃整条 state/action。
-每路 `sequence` 和 `reused` 都写入诊断列，因此既保持动作时间轴连续，又能在训练前
-评估每台相机的独立有效帧率。
-
-Parquet逐帧保存`ammr.sync.*`诊断列，包括目标时间、匹配延迟、三相机源时间戳、
-各路相对目标时刻的偏差、action age和camera skew；`episodes_stats.jsonl`保存这些
-诊断量的count/min/max/mean/std汇总。Recorder状态还提供实际录制帧率、目标时刻
-跳过数、拒绝数、重复数、producer drops和writer队列深度。
+LeRobot `timestamp` 固定为 `frame_index / fps`。Parquet 中的 `ammr.capture.*`诊断列
+分别记录每路数据的本地接收时间、采样时年龄，以及相机源时间戳、序号和复用标记；
+它们用于观察发布端状态，不参与丢帧或训练时间轴判定。状态信息提供实际录入频率、
+相机帧复用数、序号缺口、writer drops和队列深度。
 
 停止录制时会根据命令行中的`--quality-*`阈值自动判定episode质量。质量不合格的
 episode仍然保存，但在`episodes.jsonl`、`episodes_stats.jsonl`和Recorder状态中
@@ -696,7 +681,8 @@ episode仍然保存，但在`episodes.jsonl`、`episodes_stats.jsonl`和Recorder
 ~/yanjun/ammr_teleop/datasets/ammr_real_xr/.in_progress/episode_XXXXXX/
 ```
 
-Writer关闭三路视频后，会检查Parquet行数及三路MP4帧数完全一致。全部通过才将
+Writer关闭三路视频后，会检查`frame_index`连续、LeRobot和视频引用时间戳等于
+`frame_index / fps`、诊断值有限，以及Parquet行数和三路MP4帧数完全一致。全部通过才将
 文件移动到正式`data/chunk-000`和`videos/chunk-000`目录，并原子更新metadata。
 验证或写盘失败时保留`.in_progress`目录，不覆盖已有episode，方便后续恢复和排查。
 

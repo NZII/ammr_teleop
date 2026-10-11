@@ -105,7 +105,6 @@ class RealEpisodeRecorder:
         action: np.ndarray,
         images: Mapping[str, np.ndarray],
         diagnostics: Mapping[str, float] | None = None,
-        timestamp: float | None = None,
     ) -> None:
         state = validate_vector(observation)
         command = validate_vector(action)
@@ -116,13 +115,7 @@ class RealEpisodeRecorder:
             if not self.active:
                 raise RuntimeError("no active episode")
             frame_index = len(self.rows)
-            frame_timestamp = (
-                float(frame_index) / self.fps if timestamp is None else float(timestamp)
-            )
-            if not np.isfinite(frame_timestamp) or frame_timestamp < 0.0:
-                raise ValueError("recording timestamp must be finite and non-negative")
-            if self.rows and frame_timestamp <= float(self.rows[-1]["timestamp"]):
-                raise ValueError("recording timestamps must be strictly increasing")
+            frame_timestamp = float(frame_index) / self.fps
             row = {
                 "observation.state": state.astype(np.float32).tolist(),
                 "action": command.astype(np.float32).tolist(),
@@ -192,12 +185,36 @@ class RealEpisodeRecorder:
     def _validate_staged_episode(self, parquet: Path) -> None:
         import pandas as pd
 
-        rows = len(pd.read_parquet(parquet))
+        table = pd.read_parquet(parquet)
+        rows = len(table)
         if rows != len(self.rows):
             raise RuntimeError(
                 f"staged parquet rows={rows}, expected={len(self.rows)}"
             )
+        frame_indices = table["frame_index"].to_numpy(dtype=np.int64)
+        expected_indices = np.arange(rows, dtype=np.int64)
+        if not np.array_equal(frame_indices, expected_indices):
+            raise RuntimeError("staged frame_index is not contiguous from zero")
+        timestamps = table["timestamp"].to_numpy(dtype=np.float64)
+        expected_timestamps = frame_indices.astype(np.float64) / self.fps
+        if not np.array_equal(timestamps, expected_timestamps):
+            raise RuntimeError("staged timestamp does not equal frame_index / fps")
+        for column in table.columns:
+            if column.startswith("ammr.capture."):
+                values = table[column].to_numpy(dtype=np.float64)
+                if not np.all(np.isfinite(values)):
+                    raise RuntimeError(f"staged capture diagnostic {column} is not finite")
         for name in CAMERAS:
+            image_key = f"observation.images.{name}"
+            for row_number, reference in enumerate(table[image_key]):
+                if not isinstance(reference, Mapping):
+                    raise RuntimeError(
+                        f"staged {image_key} row {row_number} is not video metadata"
+                    )
+                if float(reference.get("timestamp", np.nan)) != timestamps[row_number]:
+                    raise RuntimeError(
+                        f"staged {image_key} timestamp does not match row timestamp"
+                    )
             path = self.staged_video_paths.get(name)
             if path is None or not path.is_file():
                 raise RuntimeError(f"staged episode is missing {name} video")
@@ -246,11 +263,17 @@ class RealEpisodeRecorder:
             "contract_version": CONTRACT_VERSION,
             "base_fixed_during_recording": True,
             "camera_names": list(CAMERAS),
-            "sync_diagnostics": sorted(self.diagnostic_names),
+            "capture_diagnostics": sorted(self.diagnostic_names),
             "fps": self.fps,
             "total_episodes": len(episode_files),
             "total_frames": total_frames,
             "total_tasks": 1,
+            # LeRobot's v2 loader uses chunks_size to resolve episode paths
+            # even for the legacy per-episode file layout.
+            "total_chunks": max(1, (len(episode_files) + 999) // 1000),
+            "chunks_size": 1000,
+            "data_files_size_in_mb": 100,
+            "video_files_size_in_mb": 500,
             "features": features,
             "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
             "video_path": "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
@@ -410,7 +433,6 @@ class AsyncEpisodeRecorder:
         action: np.ndarray,
         images: Mapping[str, np.ndarray],
         diagnostics: Mapping[str, float] | None = None,
-        timestamp: float | None = None,
     ) -> bool:
         with self.lock:
             if not self.accepting or self.frame_queue is None:
@@ -419,7 +441,7 @@ class AsyncEpisodeRecorder:
                 raise RuntimeError(f"episode writer failed: {self.writer_error}")
             try:
                 self.frame_queue.put_nowait(
-                    (observation, action, images, dict(diagnostics or {}), timestamp)
+                    (observation, action, images, dict(diagnostics or {}))
                 )
             except queue.Full:
                 self.producer_drops += 1
@@ -433,10 +455,8 @@ class AsyncEpisodeRecorder:
             try:
                 if item is self._STOP:
                     return
-                observation, action, images, diagnostics, timestamp = item
-                self.writer.add_frame(
-                    observation, action, images, diagnostics, timestamp=timestamp
-                )
+                observation, action, images, diagnostics = item
+                self.writer.add_frame(observation, action, images, diagnostics)
                 self.frames_written += 1
             except Exception as error:
                 self.writer_error = error
@@ -493,10 +513,8 @@ def _process_writer_main(
             if isinstance(item, dict) and item.get("type") == "stop":
                 quality = dict(item.get("quality") or {})
                 break
-            observation, action, images, diagnostics, timestamp = item
-            recorder.add_frame(
-                observation, action, images, diagnostics, timestamp=timestamp
-            )
+            observation, action, images, diagnostics = item
+            recorder.add_frame(observation, action, images, diagnostics)
             frames_written += 1
         path = recorder.stop(quality)
         status_queue.put(("stopped", str(path), frames_written, None))
@@ -615,7 +633,6 @@ class ProcessEpisodeRecorder:
         action: np.ndarray,
         images: Mapping[str, np.ndarray],
         diagnostics: Mapping[str, float] | None = None,
-        timestamp: float | None = None,
     ) -> bool:
         with self.lock:
             if not self.accepting or self.frame_queue is None:
@@ -625,7 +642,7 @@ class ProcessEpisodeRecorder:
                 raise RuntimeError(self.writer_error)
             try:
                 self.frame_queue.put_nowait(
-                    (observation, action, images, dict(diagnostics or {}), timestamp)
+                    (observation, action, images, dict(diagnostics or {}))
                 )
             except queue.Full:
                 self.producer_drops += 1
